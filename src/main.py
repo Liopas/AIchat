@@ -2,7 +2,7 @@
 import flet as ft                                  # Фреймворк для создания кроссплатформенных приложений с современным UI
 from api.openrouter import OpenRouterClient        # Клиент для взаимодействия с AI API через OpenRouter
 from ui.styles import AppStyles                    # Модуль с настройками стилей интерфейса
-from ui.components import MessageBubble, ModelSelector  # Компоненты пользовательского интерфейса
+from ui.components import MessageBubble, ModelSelector, ApiKeyDialog, PinDialog  # Компоненты пользовательского интерфейса
 from utils.cache import ChatCache                  # Модуль для кэширования истории чата
 from utils.logger import AppLogger                 # Модуль для логирования работы приложения
 from utils.analytics import Analytics              # Модуль для сбора и анализа статистики использования
@@ -28,7 +28,7 @@ class ChatApp:
         - Система мониторинга для отслеживания производительности
         """
         # Инициализация основных компонентов
-        self.api_client = OpenRouterClient()       # Создание клиента для работы с AI API
+        self.api_client = None                     # Создание клиента для работы с AI API
         self.cache = ChatCache()                   # Инициализация системы кэширования
         self.logger = AppLogger()                  # Инициализация системы логирования
         self.analytics = Analytics(self.cache)     # Инициализация системы аналитики с передачей кэша
@@ -36,13 +36,13 @@ class ChatApp:
 
         # Создание компонента для отображения баланса API
         self.balance_text = ft.Text(
-            "Баланс: Загрузка...",                # Начальный текст до загрузки реального баланса
+            "Баланс: Загрузка...",                 # Начальный текст до загрузки реального баланса
             **AppStyles.BALANCE_TEXT               # Применение стилей из конфигурации
         )
         self.update_balance()                      # Первичное обновление баланса
 
         # Создание директории для экспорта истории чата
-        self.exports_dir = "exports"               # Путь к директории экспорта
+        self.exports_dir = "exports"                  # Путь к директории экспорта
         os.makedirs(self.exports_dir, exist_ok=True)  # Создание директории, если её нет
         
     def load_chat_history(self):
@@ -76,6 +76,11 @@ class ChatApp:
         При успешном получении баланса показывает его зеленым цветом,
         при ошибке - красным с текстом 'н/д' (не доступен).
         """
+
+        if not self.api_client:
+            self.balance_text.value = "Баланс: не авторизован"
+            return
+
         try:
             balance = self.api_client.get_balance()         # Запрос баланса через API
             self.balance_text.value = f"Баланс: {balance}"  # Обновление текста с балансом
@@ -101,9 +106,46 @@ class ChatApp:
         AppStyles.set_window_size(page)    # Установка размеров окна приложения
 
         # Инициализация выпадающего списка для выбора модели AI
-        models = self.api_client.available_models
-        self.model_dropdown = ModelSelector(models)
-        self.model_dropdown.value = models[0] if models else None
+        self.model_dropdown = ModelSelector([])
+
+        def show_api_key_dialog():
+            """
+            Отображает окно ввода API-ключа OpenRouter.
+            Вызывается при отсутствии сохранённого ключа
+            или после сброса авторизации.
+            """
+            dialog = ApiKeyDialog(page, auth_success)
+
+            page.dialog = dialog
+            dialog.open = True
+            page.update()
+
+        # авторизация
+        def auth_success(api_key):
+            """
+            Обработчик успешной авторизации.
+            Инициализирует API-клиент, сохраняет ключ,
+            обновляет баланс и отображает основной интерфейс приложения.
+            """
+            self.api_client = OpenRouterClient(api_key)
+            self.api_key = api_key
+
+            # Получаем список доступных моделей
+            models = self.api_client.available_models
+
+            if models:
+                self.model_dropdown.value = models[0]["id"]
+
+            # Формируем список опций для выпадающего списка моделей
+            options = [ft.dropdown.Option(key=model["id"], text=model["name"]) for model in models]
+
+            self.model_dropdown.options = options
+            self.model_dropdown.all_options = options.copy()
+          
+            self.update_balance()
+
+            page.add(self.main_column)
+            page.update()
 
         async def send_message_click(e):
             """
@@ -412,7 +454,7 @@ class ChatApp:
             **AppStyles.MODEL_SELECTION_COLUMN   # Применение стилей к колонке
         )
 
-                # Создание основной колонки приложения
+        # Создание основной колонки приложения
         self.main_column = ft.Column(
             controls=[                            # Размещение основных элементов
                 model_selection,
@@ -422,9 +464,27 @@ class ChatApp:
             **AppStyles.MAIN_COLUMN               # Применение стилей к главной колонке
         )
 
-        # Добавление основной колонки на страницу
-        page.add(self.main_column)
-        
+        # вход
+        auth = self.cache.get_auth()
+
+        if auth:
+
+            # Показываем диалог ввода PIN-кода
+            dialog = PinDialog(
+                page,
+                self.cache,
+                on_success=auth_success,
+                on_reset=show_api_key_dialog
+            )
+        else:
+            # Если API-ключ не найден, показываем диалог его ввода
+            dialog = ApiKeyDialog(page, auth_success)
+
+        # Назначаем диалог активным для страницы
+        page.dialog = dialog
+        dialog.open = True
+        page.update()
+
         # Запуск монитора
         self.monitor.get_metrics()
         

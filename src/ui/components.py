@@ -1,7 +1,124 @@
 # Импорт необходимых библиотек и модулей
 import flet as ft                  # Фреймворк для создания пользовательского интерфейса
 from ui.styles import AppStyles    # Импорт стилей приложения
-import asyncio                     # Библиотека для асинхронного программирования
+from utils.cache import ChatCache 
+import requests
+import flet as ft
+import random
+ 
+# Диалог авторизации по API-ключу OpenRouter
+class ApiKeyDialog(ft.AlertDialog):
+
+    def __init__(self, page, on_success):
+        super().__init__()
+
+        self.page = page
+        self.on_success = on_success
+        self.cache = ChatCache()    # кэш для хранения ключа и PIN
+
+        # Поле ввода API-ключа
+        self.api_key = ft.TextField(
+            label="OpenRouter API Key",
+            password=True,
+            can_reveal_password=True,
+            width=500
+        )
+
+        # Текст ошибок
+        self.error_text = ft.Text(color=ft.Colors.RED)
+
+        self.modal = True
+        self.title = ft.Text("Авторизация OpenRouter")
+
+        # Содержимое окна
+        self.content = ft.Column([self.api_key, self.error_text], tight=True)
+
+        # Кнопка входа
+        self.actions = [ft.ElevatedButton("Войти", on_click=self.login)]
+
+    # Проверка API-ключа
+    def login(self, e):
+        key = self.api_key.value.strip()
+
+        # Проверка на пустой ввод
+        if not key:
+            self.error_text.value = "Введите API Key"
+            self.page.update()
+            return
+
+        try:
+            # Запрос к OpenRouter для проверки ключа
+            response = requests.get("https://openrouter.ai/api/v1/auth/key", headers={"Authorization": f"Bearer {key}"}, timeout=10)
+
+            if response.status_code != 200:
+                self.error_text.value = "Неверный API Key"
+                self.page.update()
+                return
+
+            # Генерация PIN-кода
+            pin = f"{random.randint(0, 9999):04d}"
+
+            self.cache.save_auth(key, pin)
+
+            print(f"PIN: {pin}")  # либо показать пользователю
+
+            self.open = False
+            self.page.update()
+
+            self.on_success(key)
+
+        except Exception as ex:
+            self.error_text.value = f"Ошибка подключения: {ex}"
+            self.page.update()
+
+# Диалог подтверждения по PIN-коду
+class PinDialog(ft.AlertDialog):
+
+    def __init__(self, page, cache, on_success, on_reset):
+        super().__init__()
+
+        self.page = page
+        self.cache = cache
+        self.on_success = on_success
+        self.on_reset = on_reset
+
+        # Поле ввода PIN
+        self.pin_field = ft.TextField(label="PIN", password=True, max_length=4)
+
+        self.error_text = ft.Text(color=ft.Colors.RED)
+
+        self.title = ft.Text("Введите PIN")
+
+        self.content = ft.Column([self.pin_field, self.error_text])
+
+        # Кнопки входа и сброса ключа
+        self.actions = [
+            ft.TextButton("Сбросить ключ", on_click=self.reset_key), 
+            ft.ElevatedButton("Войти", on_click=self.check_pin)]
+
+    # Проверка PIN-кода
+    def check_pin(self, e):
+        saved_pin = self.cache.get_pin()
+
+        if self.pin_field.value == saved_pin:
+            self.open = False
+            self.page.update()
+
+            api_key, _ = self.cache.get_auth()
+            self.on_success(api_key)
+    
+        else:
+            self.error_text.value = "Неверный PIN"
+            self.page.update()
+
+    # Сброс сохранённых данных авторизации
+    def reset_key(self, e):
+        self.cache.clear_auth()
+
+        self.open = False
+        self.page.update()
+        self.on_reset()
+
 
 class MessageBubble(ft.Container):
     """

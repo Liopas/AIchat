@@ -15,7 +15,7 @@ class OpenRouterClient:
     языковым моделям (GPT, Claude и др.) через единый API интерфейс.
     """
     
-    def __init__(self):
+    def __init__(self, api_key: str):
         """
         Инициализация клиента OpenRouter.
         
@@ -32,16 +32,9 @@ class OpenRouterClient:
         self.logger = AppLogger()
         
         # Получение необходимых параметров из переменных окружения
-        self.api_key = os.getenv("OPENROUTER_API_KEY")  # API ключ для авторизации
+        self.api_key = api_key  # API ключ для авторизации
         self.base_url = os.getenv("BASE_URL")          # Базовый URL API
         
-        # Проверка наличия API ключа
-        if not self.api_key:
-            # Логирование критической ошибки
-            self.logger.error("OpenRouter API key not found in .env")
-            # Выбрасывание исключения с понятным сообщением
-            raise ValueError("OpenRouter API key not found in .env")
-
         # Настройка заголовков для всех API запросов
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",  # Токен для авторизации запросов

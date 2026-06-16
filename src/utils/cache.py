@@ -89,9 +89,73 @@ class ChatCache:
                 tokens_used INTEGER
             )
         ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS auth (
+                id INTEGER PRIMARY KEY,
+                api_key TEXT NOT NULL,
+                pin TEXT NOT NULL
+            )
+        ''')
         
         conn.commit()  # Сохранение изменений в базе
         conn.close()   # Закрытие соединения
+
+    # сохранить авторизацию
+    def save_auth(self, api_key, pin):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM auth
+            """
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO auth (api_key, pin)
+            VALUES (?, ?)
+            """,
+            (api_key, pin)
+        )
+
+        conn.commit()
+
+    # получить авторизацию
+    def get_auth(self):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT api_key, pin
+            FROM auth
+            LIMIT 1
+            """
+        )
+
+        row = cursor.fetchone()
+        return row
+    
+    # получить пин
+    def get_pin(self):
+        auth = self.get_auth()
+
+        if auth:
+            return auth[1]
+
+        return None
+    
+    # сброс авторизации
+    def clear_auth(self):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM auth")
+
+        conn.commit()
+        conn.close()
 
     def save_message(self, model, user_message, ai_response, tokens_used):
         """
